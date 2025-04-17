@@ -16,13 +16,18 @@ training_columns_path = os.path.join(BASE_DIR, "encoded_feature_columns.csv")
 training_columns = list(pd.read_csv(training_columns_path).columns)
 
 # Lazy-load model
+model = None
+
 def get_model():
-    if not hasattr(get_model, "model"):
+    global model
+    if model is None:
         model_path = os.path.join(BASE_DIR, "prediction_model.pkl")
-        get_model.model = joblib.load(model_path)
-        if not isinstance(get_model.model, (RandomForestRegressor, DecisionTreeRegressor)):
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file missing: {model_path}")
+        model = joblib.load(model_path)
+        if not isinstance(model, (RandomForestRegressor, DecisionTreeRegressor)):
             raise TypeError("Loaded model is not a valid RandomForestRegressor or DecisionTreeRegressor.")
-    return get_model.model
+    return model
 
 # Load dataset for reference options
 apy_path = os.path.join(BASE_DIR, "APY.csv")
@@ -91,19 +96,36 @@ def predict():
 @app.route('/testmodel')
 def test_model():
     try:
+        model_path = os.path.join(BASE_DIR, "prediction_model.pkl")
+        if not os.path.exists(model_path):
+            return f"❌ Model file missing: {model_path}"
+        
+        # Ensure model is loaded properly
         model = get_model()
         return f"✅ Model loaded successfully: {type(model)}"
+    except FileNotFoundError as e:
+        return f"❌ {str(e)}"
     except Exception as e:
         return f"❌ Model loading failed: {str(e)}"
+
 @app.route('/testfiles')
 def test_files():
     try:
-        assert os.path.exists("prediction_model.pkl")
-        assert os.path.exists("encoded_feature_columns.csv")
+        # Check if files exist
+        assert os.path.exists("prediction_model.pkl"), "❌ prediction_model.pkl is missing"
+        assert os.path.exists("encoded_feature_columns.csv"), "❌ encoded_feature_columns.csv is missing"
         return "✅ Both files exist."
-    except AssertionError:
-        return "❌ One or both files are missing."
-    
+    except AssertionError as e:
+        return f"{str(e)}"
+
+# Load model at app startup
+@app.before_first_request
+def load_model():
+    global model
+    try:
+        model = get_model()
+    except Exception as e:
+        print(f"❌ Error during model loading at startup: {str(e)}")
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
